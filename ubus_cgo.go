@@ -241,6 +241,7 @@ func Connect(path string) (context *Context, err error) {
 }
 
 // NewObject create an ubus object
+// RegisterMethod could be used to add one ubus method for the object
 func NewObject(name string) *Object {
 	cname := C.CString(name)
 
@@ -262,36 +263,8 @@ func NewObject(name string) *Object {
 	return obj
 }
 
-func (ctx *Context) ufdStubHandler(ufd *libubox.UloopFD, events uint) {
-	elem := ufd.Read()
-	defer elem.Free()
-
-	if elem.Err != nil {
-		fmt.Fprintf(os.Stderr, "ufdStubHandler: Read failed: %s", elem.Err)
-		return
-	}
-	var err error
-	var p uintptr
-
-	if p, err = localUnmarshalToCall(elem.Data); err != nil {
-		fmt.Fprintf(os.Stderr, "ufdStubHandler: decode response failed: %s", err)
-		return
-	}
-
-	c := (*call)(unsafe.Pointer(p))
-	ctx.calls.RLock()
-	done, found := ctx.calls.Elem[c]
-	ctx.calls.RUnlock()
-
-	if !found {
-		fmt.Fprintf(os.Stderr, "ufdStubHandler: %p is not in ongoning calls", c)
-		return
-	}
-	if done != nil {
-		done <- nil
-	}
-}
-
+// ufdProxyHandler the uloop fd handler runs in uloop.run context,
+// receive function call request from other context run it in uloop.run context
 func (ctx *Context) ufdProxyHandler(ufd *libubox.UloopFD, events uint) {
 	elem := ufd.Read()
 	defer elem.Free()
@@ -313,15 +286,13 @@ func (ctx *Context) ufdProxyHandler(ufd *libubox.UloopFD, events uint) {
 	}
 
 	ctx.calls.RLock()
-	_, found := ctx.calls.Elem[req]
+	done, found := ctx.calls.Elem[req]
 	ctx.calls.RUnlock()
 	if !found {
 		return
 	}
-	_, err = ctx.ufdProxy.Write(elem.Data)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ufdProxyHandler: write response failed, %s", err)
-		return
+	if done != nil {
+		done <- nil
 	}
 }
 
@@ -336,15 +307,15 @@ func (ctx *Context) AddUloop() error {
 	if err != nil {
 		return err
 	}
-	ctx.ufdStub = libubox.NewUloopFD(ctx.sockPair[0], ctx.ufdStubHandler)
+
+	// ufdStub is only used to send data to connected socket pair ufdProxy, no
+	// need to assign a FD handler for ufdStub
+	ctx.ufdStub = libubox.NewUloopFD(ctx.sockPair[0], nil)
 	ctx.ufdProxy = libubox.NewUloopFD(ctx.sockPair[1], ctx.ufdProxyHandler)
 
-	err = syscall.SetsockoptInt(ctx.sockPair[0], syscall.SOL_SOCKET, syscall.SO_SNDBUF, libubox.UFDReadBufferSize)
-	err = syscall.SetsockoptInt(ctx.sockPair[0], syscall.SOL_SOCKET, syscall.SO_RCVBUF, libubox.UFDReadBufferSize)
-	err = syscall.SetsockoptInt(ctx.sockPair[1], syscall.SOL_SOCKET, syscall.SO_SNDBUF, libubox.UFDReadBufferSize)
-	err = syscall.SetsockoptInt(ctx.sockPair[1], syscall.SOL_SOCKET, syscall.SO_RCVBUF, libubox.UFDReadBufferSize)
+	err = syscall.SetsockoptInt(ctx.ufdStub.FD(), syscall.SOL_SOCKET, syscall.SO_SNDBUF, libubox.UFDReadBufferSize)
+	err = syscall.SetsockoptInt(ctx.ufdProxy.FD(), syscall.SOL_SOCKET, syscall.SO_RCVBUF, libubox.UFDReadBufferSize)
 
-	ctx.ufdStub.Add(libubox.UloopBlocking | libubox.UloopRead)
 	ctx.ufdProxy.Add(libubox.UloopBlocking | libubox.UloopRead)
 	return nil
 }
