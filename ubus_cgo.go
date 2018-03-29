@@ -456,7 +456,7 @@ func (ctx *Context) Run(f call, timeout time.Duration) error {
 	return err
 }
 
-// Call does the same as CLI 'ubus -t timeut call path method param'
+// Call does the same as CLI 'ubus -t timeout call path method param'
 //
 // PS. it must be called in the context of uloop.run, if you are not sure,
 // wrap your invocation with Context.Run
@@ -473,7 +473,7 @@ func (ctx *Context) Call(path, method string, param json.RawMessage, timeout tim
 // int ubus_lookup_id(struct ubus_context *ctx, const char *path, uint32_t *id)
 //
 // PS. it must be called in the context of uloop.run, if you are not sure,
-// wrap your inovcation with Context.Run
+// wrap your invocation with Context.Run
 func (ctx *Context) LookupID(path string) (uint32, error) {
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))
@@ -486,13 +486,13 @@ func (ctx *Context) LookupID(path string) (uint32, error) {
 	return uint32(id), nil
 }
 
-// Inovke encapsualtes ubus_invoke, it's better to use Call instead of this one.
+// Invoke encapsulates ubus_invoke, it's better to use Call instead of this one.
 //
 // int ubus_invoke(struct ubus_context *ctx, uint32_t obj, const char *method, struct blob_attr *msg, ubus_data_handler_t cb, void *priv, int timeout)
 //
 // PS. this method must be called in the same context of uloop.run
-// in fact, it does not call ubus_invoke directly, insteald, it re-implements ubus_invoke_fd,
-// as we need create the mapping from the ubus_request pointer to the DataHandler implemnted in go
+// in fact, it does not call ubus_invoke directly, instead, it re-implements ubus_invoke_fd,
+// as we need create the mapping from the ubus_request pointer to the DataHandler implemented in go
 func (ctx *Context) Invoke(id uint32, method string, param json.RawMessage, timeoutMS int) (response json.RawMessage, err error) {
 	cmethod := C.CString(method)
 	defer C.free(unsafe.Pointer(cmethod))
